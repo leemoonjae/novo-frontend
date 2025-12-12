@@ -67,14 +67,13 @@ export default function SignupPage() {
             평소에 말 못한 마음을, 남겨둘 수 있습니다.
           </div>
           <h1 className="text-3xl md:text-4xl font-bold leading-snug">
-            만약 오늘 내가
+            떠난 후에도
             <br />
-            갑자기 떠난다면,
+            전하고 싶은 말이,
             <br />
             <span className="text-emerald-400">
-              누구에게, 어떤 말을
+              안전하게 도착하도록
             </span>{" "}
-            남기고 싶으신가요
           </h1>
           <p className="text-sm md:text-base text-slate-200 leading-relaxed">
             NOVO는 갑작스러운 사고나 연락 두절 상황에서
