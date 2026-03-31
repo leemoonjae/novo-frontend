@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, getTokenClient, clearToken } from "@/lib/api";
+import { apiFetch, clearToken, getTokenClient } from "@/lib/api";
 
 type MeResponse = {
   ok: boolean;
@@ -10,112 +10,79 @@ type MeResponse = {
     id: number;
     name: string;
     phone: string;
+    email?: string | null;
+    birth_date?: string | null;
+    signup_method?: string | null;
     created_at: string;
     service_active: number;
     check_active: number;
     check_day: string | null;
     check_time: string | null;
+    last_check_confirmed_at?: string | null;
+    check_policy?: {
+      summary: string;
+      steps: string[];
+    };
   };
-  counts: {
-    recipients: number;
-  };
+  counts: { recipients: number };
 };
 
 type Recipient = {
   id: number;
   name: string;
   phone: string;
-  relation: string;
+  relation?: string | null;
+  has_access_password?: number | boolean;
   created_at: string;
 };
 
-type RecipientsResponse = {
-  ok: boolean;
-  recipients: Recipient[];
-};
-
-type MessageResponse = {
-  ok: boolean;
-  has_message: boolean;
-  content: string;
-};
-
-type PaymentLatestResponse = {
-  ok: boolean;
-  payment: {
-    id: number;
-    status: string;
-    amount: number;
-    created_at: string;
-  } | null;
-};
+type RecipientsResponse = { ok: boolean; recipients: Recipient[] };
+type MessageResponse = { ok: boolean; has_message: boolean; content: string };
 
 export default function Mypage() {
   const router = useRouter();
-
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
   const [me, setMe] = useState<MeResponse["user"] | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
-
-  const [message, setMessage] = useState<string>("");
-  const [messageDraft, setMessageDraft] = useState<string>("");
-  const [savingMessage, setSavingMessage] = useState(false);
-  const [messageError, setMessageError] = useState<string | null>(null);
-  const [messageSaved, setMessageSaved] = useState(false);
-
-  const [paymentLatest, setPaymentLatest] =
-    useState<PaymentLatestResponse["payment"]>(null);
-  const [paying, setPaying] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
-
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const [newRelation, setNewRelation] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [accessPassword, setAccessPassword] = useState("");
+  const [messageDraft, setMessageDraft] = useState("");
+  const [savingMessage, setSavingMessage] = useState(false);
+  const [messageSaved, setMessageSaved] = useState(false);
+  const [recipientSaved, setRecipientSaved] = useState(false);
+  const [linkResult, setLinkResult] = useState<string | null>(null);
+  const [heartbeatMessage, setHeartbeatMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = getTokenClient();
-    if (!token) {
+    if (!getTokenClient()) {
       router.replace("/signup");
       return;
     }
 
     async function fetchAll() {
       setLoading(true);
-      setErrorMsg(null);
       try {
-        const [meRes, recRes, msgRes, payRes] = await Promise.all([
+        const [meRes, recRes, msgRes] = await Promise.all([
           apiFetch<MeResponse>("/api/me"),
           apiFetch<RecipientsResponse>("/api/recipients"),
           apiFetch<MessageResponse>("/api/message"),
-          apiFetch<PaymentLatestResponse>("/api/payment/latest"),
         ]);
-
         setMe(meRes.user);
         setRecipients(recRes.recipients);
-
-        const initialMessage = msgRes.content || "";
-        setMessage(initialMessage);
-        setMessageDraft(initialMessage);
-
-        setPaymentLatest(payRes.payment);
+        setMessageDraft(msgRes.content || "");
+        if (recRes.recipients[0]) {
+          setNewName(recRes.recipients[0].name);
+          setNewPhone(recRes.recipients[0].phone);
+        }
       } catch (err: any) {
-        console.error(err);
         if (err?.error === "invalid_token") {
           clearToken();
           router.replace("/signup");
           return;
         }
-        setErrorMsg(
-          err?.message ||
-            err?.error ||
-            "정보를 불러오는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
-        );
+        setErrorMsg(err?.message || err?.error || "마이페이지를 불러오지 못했어.");
       } finally {
         setLoading(false);
       }
@@ -124,421 +91,178 @@ export default function Mypage() {
     fetchAll();
   }, [router]);
 
-  async function handleAddRecipient(e: FormEvent) {
+  const exampleTexts = useMemo(() => [
+    "이 글을 본다는 건 내게 갑작스러운 일이 생긴 걸 거야.",
+    "우리 가족을 위해 투자해 둔 자산이 몇 개 있어.",
+    "당황스럽겠지만, 이 순서대로 먼저 확인해 줘.",
+  ], []);
+
+  async function handleSaveRecipient(e: FormEvent) {
     e.preventDefault();
-    setAddError(null);
-
-    const name = newName.trim();
-    const phone = newPhone.trim();
-    const relation = newRelation.trim();
-
-    if (!name || !phone) {
-      setAddError("이름과 휴대폰 번호는 필수입니다.");
-      return;
-    }
-
-    setAdding(true);
+    setErrorMsg(null);
+    setRecipientSaved(false);
     try {
-      await apiFetch("/api/recipients", {
+      const res = await apiFetch<{ ok: boolean; recipient: Recipient }>("/api/recipients", {
         method: "POST",
         body: JSON.stringify({
-          name,
-          phone,
-          relation,
+          name: newName.trim(),
+          phone: newPhone.trim(),
+          access_password: accessPassword.trim(),
         }),
       });
-
-      const recRes = await apiFetch<RecipientsResponse>("/api/recipients");
-      setRecipients(recRes.recipients);
-
-      setNewName("");
-      setNewPhone("");
-      setNewRelation("");
+      setRecipients([res.recipient]);
+      setRecipientSaved(true);
+      setAccessPassword("");
     } catch (err: any) {
-      console.error(err);
-      setAddError(
-        err?.message ||
-          err?.error ||
-          "지정인을 추가하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
-      );
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function handleDeleteRecipient(id: number) {
-    setErrorMsg(null);
-    setDeletingId(id);
-    try {
-      await apiFetch(`/api/recipients/${id}`, {
-        method: "DELETE",
-      });
-
-      setRecipients((prev) => prev.filter((r) => r.id !== id));
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(
-        err?.message ||
-          err?.error ||
-          "지정인을 삭제하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
-      );
-    } finally {
-      setDeletingId(null);
+      setErrorMsg(err?.message || err?.error || "지정인 저장 중 문제가 발생했어.");
     }
   }
 
   async function handleSaveMessage() {
-    setMessageError(null);
+    setErrorMsg(null);
     setMessageSaved(false);
-
-    const content = messageDraft.trim();
     setSavingMessage(true);
     try {
       await apiFetch("/api/message", {
         method: "PUT",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content: messageDraft.trim() }),
       });
-
-      setMessage(content);
       setMessageSaved(true);
+      setTimeout(() => setMessageSaved(false), 2000);
     } catch (err: any) {
-      console.error(err);
-      setMessageError(
-        err?.message ||
-          err?.error ||
-          "메시지를 저장하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
-      );
+      setErrorMsg(err?.message || err?.error || "메시지를 저장하지 못했어.");
     } finally {
       setSavingMessage(false);
-      setTimeout(() => setMessageSaved(false), 2000);
     }
   }
 
-  async function handleStartPayment() {
-    setPaymentError(null);
-    setPaying(true);
+  async function handleHeartbeat() {
     try {
-      await apiFetch("/api/payment/start", {
-        method: "POST",
-        body: JSON.stringify({
-          pay_method: "kakaopay",
-        }),
-      });
-
-      const payRes = await apiFetch<PaymentLatestResponse>(
-        "/api/payment/latest"
-      );
-      setPaymentLatest(payRes.payment);
+      const res = await apiFetch<{ ok: boolean; confirmed_at: string; message: string }>("/api/check/heartbeat", { method: "POST" });
+      setHeartbeatMessage(res.message);
+      setMe((prev) => (prev ? { ...prev, last_check_confirmed_at: res.confirmed_at } : prev));
     } catch (err: any) {
-      console.error(err);
-      setPaymentError(
-        err?.message ||
-          err?.error ||
-          "결제를 처리하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
-      );
-    } finally {
-      setPaying(false);
+      setErrorMsg(err?.message || err?.error || "생존 확인 처리에 실패했어.");
+    }
+  }
+
+  async function handleCreateRecipientLink() {
+    try {
+      const res = await apiFetch<{ ok: boolean; access_link: string }>("/api/recipient-access-link", { method: "POST" });
+      setLinkResult(res.access_link);
+    } catch (err: any) {
+      setErrorMsg(err?.message || err?.error || "열람 링크를 만들지 못했어.");
     }
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-slate-600">
-        마이페이지를 불러오는 중입니다...
-      </div>
-    );
+    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-200">불러오는 중...</div>;
   }
 
-  if (!me) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="space-y-4 text-center">
-          <div>회원 정보를 불러오지 못했습니다.</div>
-          <button
-            className="px-4 py-2 rounded bg-emerald-600 text-white text-sm"
-            onClick={() => router.replace("/signup")}
-          >
-            다시 가입하기
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (!me) return null;
 
   return (
-    <div className="min-h-screen bg-slate-950">
-            {/* 상단 바 */}
-      <header className="border-b bg-slate-900/90 backdrop-blur text-slate-100">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {/* 왼쪽: 로고 + 설명 */}
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">
-              N
-            </div>
-            <div>
-              <div className="text-sm font-semibold tracking-tight">
-                NOVO 마이페이지
-              </div>
-              <div className="mt-0.5 text-[11px] text-slate-300 leading-snug">
-                혹시 모를 그날을 위해, 오늘 미리 적어 두는 한 문장입니다.
-              </div>
-            </div>
+    <div className="min-h-screen bg-slate-950 text-white">
+      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+          <div>
+            <div className="text-lg font-semibold">NOVO 마이페이지</div>
+            <div className="text-xs text-slate-400">혹시 모를 그날을 위해, 오늘 미리 적어 두는 한 문장</div>
           </div>
-
-          {/* 오른쪽: 이름 + 로그아웃 */}
-          <div className="flex items-center gap-3 text-xs text-slate-200 justify-end">
-            <span className="whitespace-nowrap">{me.name} 님</span>
-            <button
-              className="whitespace-nowrap underline"
-              onClick={() => {
-                clearToken();
-                router.push("/signup");
-              }}
-            >
-              로그아웃
-            </button>
-          </div>
+          <button onClick={() => { clearToken(); router.push("/signup"); }} className="text-sm underline text-slate-300">로그아웃</button>
         </div>
       </header>
 
+      <main className="mx-auto max-w-6xl px-4 py-8">
+        {errorMsg && <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{errorMsg}</div>}
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6 text-slate-900">
-        {errorMsg && (
-          <div className="p-3 text-sm bg-red-50 text-red-600 rounded-md border border-red-100">
-            {errorMsg}
-          </div>
-        )}
-
-        {/* 상단 요약 카드 */}
         <section className="grid gap-4 md:grid-cols-3">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 space-y-1">
-            <div className="text-xs font-semibold text-slate-500">
-              기본 정보
-            </div>
-            <div className="text-sm text-slate-800">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="text-xs text-slate-400">가입 정보</div>
+            <div className="mt-3 space-y-1 text-sm text-slate-100">
               <div>{me.name}</div>
-              <div className="text-xs text-slate-500">{me.phone}</div>
-            </div>
-            <div className="mt-2 text-[11px] text-slate-400">
-              가입일: {me.created_at}
+              <div>{me.birth_date}</div>
+              <div>{me.signup_method === "email" ? me.email || "이메일 미입력" : me.phone}</div>
             </div>
           </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col justify-between">
-            <div>
-              <div className="text-xs font-semibold text-slate-500">
-                지정인 수
-              </div>
-              <div className="mt-1 text-2xl font-bold text-slate-900">
-                {recipients.length}
-                <span className="ml-1 text-xs font-normal text-slate-500">
-                  명
-                </span>
-              </div>
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="text-xs text-slate-400">생존 확인 상태</div>
+            <div className="mt-3 text-sm leading-7 text-slate-100">
+              <div>{me.check_policy?.summary}</div>
+              <div className="mt-2 text-xs text-slate-400">마지막 확인: {me.last_check_confirmed_at || "아직 없음"}</div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">
-              가족, 지인, 파트너 등 실제로 메시지를 받게 될 분들을 등록해
-              주세요.
-            </p>
+            <button onClick={handleHeartbeat} className="mt-4 rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950">이번 달 생존 확인</button>
+            {heartbeatMessage && <div className="mt-2 text-xs text-emerald-300">{heartbeatMessage}</div>}
           </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex flex-col justify-between">
-            <div className="text-xs font-semibold text-slate-500">
-              이용권 상태
-            </div>
-            {paymentLatest ? (
-              <div className="mt-1 space-y-1 text-sm text-slate-800">
-                <div>상태: {paymentLatest.status}</div>
-                <div>
-                  금액: {paymentLatest.amount.toLocaleString()}
-                  원
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  최근 결제: {paymentLatest.created_at}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-1 text-sm text-slate-700">
-                아직 결제 내역이 없습니다.
-              </div>
-            )}
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="text-xs text-slate-400">지정인 전달 테스트</div>
+            <p className="mt-3 text-sm leading-7 text-slate-300">카카오 버튼 자리에 들어갈 열람 링크를 미리 생성해 볼 수 있어.</p>
+            <button onClick={handleCreateRecipientLink} className="mt-4 rounded-2xl border border-white/15 px-4 py-2 text-sm">열람 링크 만들기</button>
+            {linkResult && <div className="mt-3 break-all rounded-2xl bg-slate-900 px-3 py-3 text-xs text-slate-200">{linkResult}</div>}
           </div>
         </section>
 
-        {/* 메인 3컬럼 레이아웃 (모바일에서는 세로) */}
-        <section className="grid gap-4 md:grid-cols-3">
-          {/* 지정인 관리 */}
-          <div className="md:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-4 space-y-4">
+        <section className="mt-6 grid gap-6 lg:grid-cols-[1.05fr_1.35fr]">
+          <div className="rounded-[28px] border border-white/10 bg-white p-6 text-slate-900">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                지정인 관리
-              </h2>
-              <span className="text-[11px] text-slate-400">
-                연락처는 실제 발송용으로만 사용됩니다.
-              </span>
+              <h2 className="text-lg font-semibold">지정인 등록</h2>
+              <span className="text-xs text-slate-500">관계 항목은 제거했어.</span>
             </div>
-
-            <form
-              onSubmit={handleAddRecipient}
-              className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end"
-            >
+            <form onSubmit={handleSaveRecipient} className="mt-5 space-y-4">
               <div>
-                <label className="block text-[11px] font-medium mb-1 text-slate-600">
-                  이름
-                </label>
-                <input
-                  className="w-full border rounded-md px-2 py-1.5 text-xs border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="아들"
-                />
+                <label className="mb-1 block text-xs font-medium">받는 사람 이름</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="홍길동" />
               </div>
               <div>
-                <label className="block text-[11px] font-medium mb-1 text-slate-600">
-                  휴대폰 번호
-                </label>
-                <input
-                  className="w-full border rounded-md px-2 py-1.5 text-xs border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="01012345678"
-                />
+                <label className="mb-1 block text-xs font-medium">연락처</label>
+                <input className="w-full rounded-xl border px-3 py-2" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="01012345678" />
               </div>
               <div>
-                <label className="block text-[11px] font-medium mb-1 text-slate-600">
-                  관계
-                </label>
-                <input
-                  className="w-full border rounded-md px-2 py-1.5 text-xs border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  value={newRelation}
-                  onChange={(e) => setNewRelation(e.target.value)}
-                  placeholder="자녀 / 배우자 등"
-                />
+                <label className="mb-1 block text-xs font-medium">지정인 열람 비밀번호</label>
+                <input type="password" className="w-full rounded-xl border px-3 py-2" value={accessPassword} onChange={(e) => setAccessPassword(e.target.value)} placeholder="최소 4자" />
+                <p className="mt-1 text-[11px] text-slate-500">지정인이 링크 접속 후 생년월일과 함께 입력할 비밀번호야.</p>
               </div>
-              <div>
-                <button
-                  type="submit"
-                  disabled={adding}
-                  className="w-full py-2 rounded-md bg-emerald-600 text-white text-xs font-semibold disabled:opacity-60"
-                >
-                  {adding ? "추가 중입니다..." : "지정인 추가"}
-                </button>
-              </div>
+              <button className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">지정인 저장</button>
+              {recipientSaved && <div className="text-xs text-emerald-600">지정인 정보가 저장됐어.</div>}
             </form>
 
-            {addError && (
-              <div className="text-[11px] text-red-500 whitespace-pre-line">
-                {addError}
-              </div>
-            )}
-
-            <div className="border-t border-slate-100 pt-3">
-              <ul className="space-y-2 text-xs">
-                {recipients.length === 0 && (
-                  <li className="text-slate-500">
-                    등록된 지정인이 아직 없습니다.
-                  </li>
-                )}
-                {recipients.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex items-center justify-between border rounded-md px-3 py-2"
-                  >
-                    <div>
-                      <div className="font-medium text-slate-900">
-                        {r.name} ({r.relation || "관계 미입력"})
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        {r.phone}
-                      </div>
-                    </div>
-                    <button
-                      className="text-[11px] text-red-500 disabled:opacity-50"
-                      onClick={() => handleDeleteRecipient(r.id)}
-                      disabled={deletingId === r.id}
-                    >
-                      {deletingId === r.id ? "삭제 중입니다..." : "삭제"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold text-slate-600">현재 등록 상태</div>
+              {recipients.length > 0 ? (
+                <div className="mt-2 text-sm leading-7 text-slate-800">
+                  <div>{recipients[0].name}</div>
+                  <div>{recipients[0].phone}</div>
+                  <div className="text-xs text-slate-500">열람 비밀번호 설정됨: {recipients[0].has_access_password ? "예" : "아니오"}</div>
+                </div>
+              ) : (
+                <div className="mt-2 text-sm text-slate-500">아직 지정인이 등록되지 않았어.</div>
+              )}
             </div>
           </div>
 
-          {/* 메시지 + 결제 */}
-          <div className="space-y-4">
-            {/* 메시지 */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-900">
-                남길 메시지
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                지정인께 실제로 전달될 문장입니다.
-                <br />
-                마음이 바뀌면 언제든지 다시 수정하실 수 있습니다.
-              </p>
-              <textarea
-                className="w-full border rounded-md px-3 py-2 text-xs min-h-[130px] border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                value={messageDraft}
-                onChange={(e) => setMessageDraft(e.target.value)}
-              />
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleSaveMessage}
-                  disabled={savingMessage}
-                  className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs disabled:opacity-60"
-                >
-                  {savingMessage ? "저장 중입니다..." : "메시지 저장"}
-                </button>
-                {messageSaved && (
-                  <span className="text-[11px] text-emerald-600">
-                    저장이 완료되었습니다.
-                  </span>
-                )}
-              </div>
-              {messageError && (
-                <div className="text-[11px] text-red-500 whitespace-pre-line">
-                  {messageError}
+          <div className="rounded-[28px] border border-white/10 bg-white p-6 text-slate-900">
+            <div className="grid gap-5 md:grid-cols-[1.25fr_0.75fr]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">전달할 메시지 작성</h2>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] text-emerald-700">암호화 저장</span>
                 </div>
-              )}
-            </div>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  저장된 메시지는 암호화된 형태로 보관돼. 글쓴이 외 단 한 명도, 그 누구도 본문을 바로 볼 수 없도록 준비하는 흐름이야.
+                </p>
+                <textarea className="mt-4 min-h-[320px] w-full rounded-2xl border px-4 py-4 text-sm leading-7" value={messageDraft} onChange={(e) => setMessageDraft(e.target.value)} placeholder="전달하고 싶은 말을 텍스트로 남겨 줘." />
+                <button onClick={handleSaveMessage} disabled={savingMessage} className="mt-4 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{savingMessage ? "저장 중..." : "메시지 저장"}</button>
+                {messageSaved && <span className="ml-3 text-xs text-emerald-600">저장 완료</span>}
+              </div>
 
-            {/* 결제 */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-900">
-                이용권 / 결제
-              </h2>
-              <div className="text-xs text-slate-700 space-y-1">
-                {paymentLatest ? (
-                  <>
-                    <div>마지막 결제 상태: {paymentLatest.status}</div>
-                    <div>
-                      금액: {paymentLatest.amount.toLocaleString()}
-                      원
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      일시: {paymentLatest.created_at}
-                    </div>
-                  </>
-                ) : (
-                  <div>아직 결제 내역이 없습니다.</div>
-                )}
-              </div>
-              {paymentError && (
-                <div className="text-[11px] text-red-500 whitespace-pre-line">
-                  {paymentError}
+              <aside className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-semibold text-slate-900">작성 예시</div>
+                <div className="mt-3 space-y-3">
+                  {exampleTexts.map((item) => (
+                    <div key={item} className="rounded-2xl bg-white px-3 py-3 text-xs leading-6 text-slate-700">{item}</div>
+                  ))}
                 </div>
-              )}
-              <button
-                className="w-full px-3 py-2 rounded-md bg-slate-900 text-white text-xs disabled:opacity-60"
-                onClick={handleStartPayment}
-                disabled={paying}
-              >
-                {paying
-                  ? "결제 처리 중입니다..."
-                  : "연 14,900원 결제하기 (테스트용 / 추후 연동)"}
-              </button>
+              </aside>
             </div>
           </div>
         </section>
