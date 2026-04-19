@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch, setToken } from "@/lib/api";
 
@@ -13,17 +14,25 @@ type RegisterResponse = {
     phone: string;
     email?: string | null;
     birth_date: string;
-    signup_method: "phone" | "email";
+    signup_method: string;
+    check_frequency: string;
+    check_start_date: string;
+    check_time: string;
+    next_check_at: string;
   };
 };
 
 export default function SignupPage() {
   const router = useRouter();
-  const [signupMethod, setSignupMethod] = useState<"phone" | "email">("phone");
   const [name, setName] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [signupMethod, setSignupMethod] = useState<"phone" | "email">("phone");
+  const [password, setPassword] = useState("");
+  const [checkFrequency, setCheckFrequency] = useState<"biweekly" | "monthly">("monthly");
+  const [checkStartDate, setCheckStartDate] = useState("");
+  const [checkTime, setCheckTime] = useState("09:00");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -31,18 +40,20 @@ export default function SignupPage() {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!name.trim() || !birthDate.trim()) {
-      setErrorMsg("이름과 생년월일을 입력해 주세요.");
+    if (!name.trim() || !birthDate.trim() || !password.trim()) {
+      setErrorMsg("이름, 생년월일, 비밀번호를 입력해 주세요.");
       return;
     }
-
     if (signupMethod === "phone" && !phone.trim()) {
-      setErrorMsg("휴대폰 기반 가입을 선택한 경우 연락처를 입력해 주세요.");
+      setErrorMsg("휴대폰 번호를 입력해 주세요.");
       return;
     }
-
     if (signupMethod === "email" && !email.trim()) {
-      setErrorMsg("이메일 기반 가입을 선택한 경우 이메일을 입력해 주세요.");
+      setErrorMsg("이메일을 입력해 주세요.");
+      return;
+    }
+    if (!checkStartDate.trim() || !checkTime.trim()) {
+      setErrorMsg("생존확인 시작 날짜와 시간을 선택해 주세요.");
       return;
     }
 
@@ -56,9 +67,12 @@ export default function SignupPage() {
           phone: phone.trim(),
           email: email.trim(),
           signup_method: signupMethod,
+          password: password.trim(),
+          check_frequency: checkFrequency,
+          check_start_date: checkStartDate.trim(),
+          check_time: checkTime.trim(),
         }),
       });
-
       setToken(res.access_token);
       router.push("/mypage");
     } catch (err: any) {
@@ -69,86 +83,81 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white px-4 py-10">
-      <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[1.1fr_0.9fr]">
-        <section className="space-y-5">
-          <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
-            오늘 적어 둔 한 문장이, 가장 필요한 순간에 도착하도록
+    <div className="min-h-screen flex items-center justify-center px-4 bg-slate-950 text-white">
+      <div className="max-w-5xl w-full grid gap-8 md:grid-cols-[1.1fr_1fr] items-start">
+        <section className="space-y-4 pt-6">
+          <div className="inline-flex items-center gap-2 rounded-full bg-slate-800/80 px-3 py-1 text-xs text-slate-100">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+            떠난 뒤에도 닿아야 할 말이 있다면
           </div>
-          <h1 className="text-3xl font-bold leading-snug md:text-5xl">
-            갑작스러운 내일을 대비해,
+          <h1 className="text-3xl md:text-4xl font-bold leading-snug">
+            NOVO 회원가입
             <br />
-            지금의 마음을
-            <span className="text-emerald-400"> 안전하게 남겨 둬.</span>
+            <span className="text-emerald-400">생존확인 주기까지 한 번에 설정해요</span>
           </h1>
-          <p className="max-w-xl text-sm leading-7 text-slate-300 md:text-base">
-            NOVO는 생존 확인에 응답하지 못한 상황이 이어질 때,
-            미리 남겨 둔 메시지를 지정인에게 전달할 수 있도록 준비하는 서비스야.
-            본문은 텍스트로 작성되고, 저장된 메시지는 암호화된 상태로 보관돼.
+          <p className="text-sm md:text-base text-slate-200 leading-relaxed">
+            회원가입 시 본인 확인용 비밀번호를 저장하고,
+            <br />
+            생존확인 주기와 시작 날짜, 시간을 함께 정할 수 있어요.
           </p>
-          <div className="grid gap-3 text-sm text-slate-200 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 font-semibold">가입 정보</div>
-              <ul className="space-y-1 text-slate-300">
-                <li>· 이름</li>
-                <li>· 생년월일</li>
-                <li>· 연락처</li>
-                <li>· 휴대폰 또는 이메일 기반 가입</li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="mb-2 font-semibold">생존 확인 기본 흐름</div>
-              <ul className="space-y-1 text-slate-300">
-                <li>· 월 1회 생존 확인</li>
-                <li>· 미응답 시 24시간 후 재전송</li>
-                <li>· 총 2회 재전송 후 지정인 전달</li>
-              </ul>
-            </div>
+          <div className="text-sm text-slate-300">
+            이미 가입했다면 <Link href="/login" className="text-emerald-300 underline">로그인하기</Link>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-white p-6 text-slate-900 shadow-2xl">
-          <h2 className="text-2xl font-semibold">NOVO 시작하기</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            휴대폰 또는 이메일 기반으로 시작할 수 있어. 실제 본인 확인 연동은 다음 단계에서 붙이면 돼.
-          </p>
+        <section className="bg-white rounded-2xl shadow-lg border border-slate-100 p-6 md:p-7 text-slate-900">
+          <h2 className="text-xl font-semibold mb-1">시작하기</h2>
+          <p className="text-xs text-slate-500 mb-4">회원가입 후 바로 마이페이지로 이동해요.</p>
 
-          {errorMsg && <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{errorMsg}</div>}
+          {errorMsg && <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-600">{errorMsg}</div>}
 
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 text-sm">
-              <button type="button" onClick={() => setSignupMethod("phone")} className={`rounded-xl px-3 py-2 ${signupMethod === "phone" ? "bg-white shadow" : "text-slate-500"}`}>휴대폰 가입</button>
-              <button type="button" onClick={() => setSignupMethod("email")} className={`rounded-xl px-3 py-2 ${signupMethod === "email" ? "bg-white shadow" : "text-slate-500"}`}>이메일 가입</button>
-            </div>
-
+          <form onSubmit={handleSubmit} className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium">이름</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" />
+              <label className="block text-xs font-medium text-slate-700 mb-1">이름</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
             </div>
-
             <div>
-              <label className="mb-1 block text-xs font-medium">생년월일</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} placeholder="1990-01-01" />
+              <label className="block text-xs font-medium text-slate-700 mb-1">생년월일</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="19900101" value={birthDate} onChange={(e)=>setBirthDate(e.target.value)} />
             </div>
-
             <div>
-              <label className="mb-1 block text-xs font-medium">연락처</label>
-              <input className="w-full rounded-xl border px-3 py-2" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="01012345678" />
-            </div>
-
-            {signupMethod === "email" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium">이메일</label>
-                <input className="w-full rounded-xl border px-3 py-2" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="novo@example.com" />
+              <label className="block text-xs font-medium text-slate-700 mb-2">가입 방식</label>
+              <div className="flex gap-3 text-sm">
+                <label className="flex items-center gap-2"><input type="radio" checked={signupMethod==="phone"} onChange={()=>setSignupMethod("phone")} /> 휴대폰</label>
+                <label className="flex items-center gap-2"><input type="radio" checked={signupMethod==="email"} onChange={()=>setSignupMethod("email")} /> 이메일</label>
               </div>
-            )}
-
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs leading-6 text-emerald-800">
-              저장되는 메시지는 암호화된 형태로 보관되며, 열람 링크와 지정인 비밀번호가 함께 맞아야만 확인할 수 있게 설계했어.
             </div>
-
-            <button disabled={loading} className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">
-              {loading ? "가입 처리 중..." : "다음 단계로 이동"}
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">연락처</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="01012345678" value={phone} onChange={(e)=>setPhone(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">이메일(선택 또는 이메일 가입 시 필수)</label>
+              <input className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="you@example.com" value={email} onChange={(e)=>setEmail(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">로그인 비밀번호</label>
+              <input type="password" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={password} onChange={(e)=>setPassword(e.target.value)} />
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+              <div className="text-xs font-semibold text-slate-700 mb-2">생존확인 요청 주기</div>
+              <div className="flex gap-3 text-sm mb-3">
+                <label className="flex items-center gap-2"><input type="radio" checked={checkFrequency==="biweekly"} onChange={()=>setCheckFrequency("biweekly")} /> 2주에 1번</label>
+                <label className="flex items-center gap-2"><input type="radio" checked={checkFrequency==="monthly"} onChange={()=>setCheckFrequency("monthly")} /> 1달에 1번</label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">시작 날짜</label>
+                  <input type="date" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={checkStartDate} onChange={(e)=>setCheckStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">보낼 시간</label>
+                  <input type="time" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value={checkTime} onChange={(e)=>setCheckTime(e.target.value)} />
+                </div>
+              </div>
+            </div>
+            <button type="submit" disabled={loading} className="mt-2 w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">
+              {loading ? "가입 처리 중입니다..." : "NOVO 시작하기"}
             </button>
           </form>
         </section>
